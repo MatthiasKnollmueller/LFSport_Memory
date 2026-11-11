@@ -12,11 +12,17 @@
   var KEY = "lksport.band" + D.band;
 
   /* ---------- Speicher ---------- */
-  var mem = { res: {}, own: {}, over: {} }, storeOk = true;
+  /* res: gewusst (1) / nochmal (0) · own: eigene Karten je LE · over: Änderungen an Stammkarten
+     sr: Fach und Fälligkeit je Karte (Wiederholung in Abständen) · cfg.sr: Modus an/aus · mix: gewählte LEs fürs gemischte Üben */
+  var mem = { res: {}, own: {}, over: {}, sr: {}, cfg: { sr: false }, mix: [], mixMode: "all" }, storeOk = true;
   function load() {
     try {
       var s = window.localStorage.getItem(KEY);
-      if (s) { var o = JSON.parse(s); mem.res = o.res || {}; mem.own = o.own || {}; mem.over = o.over || {}; }
+      if (s) {
+        var o = JSON.parse(s);
+        mem.res = o.res || {}; mem.own = o.own || {}; mem.over = o.over || {};
+        mem.sr = o.sr || {}; mem.cfg = o.cfg || { sr: false }; mem.mix = o.mix || []; mem.mixMode = o.mixMode || "all";
+      }
     } catch (e) { storeOk = false; }
   }
   function save() {
@@ -79,12 +85,58 @@
   function backLink(text, hash) { var a = el("a", "back", "‹ " + text); a.href = hash; return a; }
   function go(hash) { if (location.hash === "#" + hash) render(); else location.hash = hash; }
 
+  /* Alle Lerneinheiten des Bandes und Karten mehrerer Lerneinheiten (mit Herkunft) */
+  var ALL = [];
+  D.kapitel.forEach(function (k) { k.le.forEach(function (le) { ALL.push({ k: k, le: le }); }); });
+  function byKey(key) { for (var i = 0; i < ALL.length; i++) if (leKey(ALL[i].k, ALL[i].le) === key) return ALL[i]; return null; }
+  function cardsFrom(sources) {
+    var out = [];
+    sources.forEach(function (s) { cardsOf(s.k, s.le).forEach(function (c) { c.k = s.k; c.le = s.le; out.push(c); }); });
+    return out;
+  }
+
+  /* ---------- Wiederholung in Abständen (Lernkartei mit 5 Fächern) ---------- */
+  var IV = [0, 1, 3, 7, 21, 60]; // Tage bis zur nächsten Wiederholung nach Fach 1 … 5
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function dayStr(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function today() { return dayStr(new Date()); }
+  function inDays(n) { var d = new Date(); d.setDate(d.getDate() + n); return dayStr(d); }
+  function isNew(c) { return !mem.sr[c.id]; }
+  function isDue(c) { var s = mem.sr[c.id]; return !!s && s.due <= today(); }
+  function srKnown(c) { var s = mem.sr[c.id] || { box: 0 }; var b = Math.min(5, (s.box || 0) + 1); mem.sr[c.id] = { box: b, due: inDays(IV[b]) }; }
+  function srAgain(c) { mem.sr[c.id] = { box: 0, due: today() }; }
+  function dueCount(cards) { var n = 0; cards.forEach(function (c) { if (isDue(c)) n++; }); return n; }
+
   /* ---------- Übersicht ---------- */
   function viewHome() {
     document.title = "Wiederholung Sport Band " + D.band;
     var home = el("a", "back", "‹ Bandauswahl"); home.href = "index.html"; app.appendChild(home);
     app.appendChild(header("Leistungsfach Sport · Wiederholung", "Band " + D.band, "Lerneinheit wählen und mit Karteikarten üben."));
     if (!storeOk) app.appendChild(el("p", "note", "Hinweis: Dieser Browser speichert gerade nichts (privater Modus?). Lernstand und eigene Karten gehen beim Schließen verloren."));
+
+    var tools = el("section", "panel");
+    var tr = el("div", "row grow");
+    var mixLink = el("a", "btn primary", "Gemischt üben"); mixLink.href = "#mischen"; tr.appendChild(mixLink);
+    tools.appendChild(tr);
+    var srRow = el("div", "switchrow");
+    var sw = el("button", "switch"); sw.type = "button"; sw.setAttribute("role", "switch"); sw.id = "sw-sr";
+    sw.setAttribute("aria-checked", String(!!mem.cfg.sr));
+    sw.appendChild(el("span", "knob"));
+    sw.addEventListener("click", function () { mem.cfg.sr = !mem.cfg.sr; save(); T = null; render(); });
+    var lab = el("label", null, "Wiederholung in Abständen"); lab.setAttribute("for", "sw-sr");
+    srRow.appendChild(sw); srRow.appendChild(lab); tools.appendChild(srRow);
+    if (mem.cfg.sr) {
+      var due = dueCount(cardsFrom(ALL));
+      tools.appendChild(el("p", "note", "Gewusste Karten kommen nach 1, 3, 7, 21 und 60 Tagen wieder; bei „Nochmal“ beginnt die Karte von vorn."));
+      var dr = el("div", "row grow");
+      var dl = el("a", "btn" + (due ? " primary" : ""), due ? "Heute fällig: " + due + " Karten üben" : "Heute ist nichts fällig");
+      if (due) dl.href = "#faellig"; else dl.setAttribute("aria-disabled", "true");
+      dr.appendChild(dl); tools.appendChild(dr);
+    } else {
+      tools.appendChild(el("p", "note", "Eingeschaltet kommen gewusste Karten nach und nach in größer werdenden Abständen wieder."));
+    }
+    app.appendChild(tools);
+
     D.kapitel.forEach(function (k) {
       var sec = el("section", "chapter"); theme(sec, k);
       sec.appendChild(el("div", "num", "Kapitel " + k.nr + " · " + k.jg));
@@ -95,8 +147,10 @@
         var b = el("button", "le"); b.type = "button";
         b.appendChild(el("span", "id", "LE " + le.id));
         b.appendChild(el("span", "ti", le.titel));
-        b.appendChild(el("span", "ct" + (cards.length && kn === cards.length ? " done" : ""), kn + " / " + cards.length));
-        b.setAttribute("aria-label", "Lerneinheit " + le.id + ", " + le.titel + ", " + kn + " von " + cards.length + " Karten gewusst");
+        var ctTxt = kn + " / " + cards.length, dn = mem.cfg.sr ? dueCount(cards) : 0;
+        if (dn) ctTxt += " · " + dn + " fällig";
+        b.appendChild(el("span", "ct" + (cards.length && kn === cards.length && !dn ? " done" : ""), ctTxt));
+        b.setAttribute("aria-label", "Lerneinheit " + le.id + ", " + le.titel + ", " + kn + " von " + cards.length + " Karten gewusst" + (dn ? ", " + dn + " fällig" : ""));
         b.addEventListener("click", function () { go(hashOf(k, le)); });
         list.appendChild(b);
       });
@@ -107,26 +161,46 @@
       ". Kartenstand " + D.stand + ". Lernstand und eigene Karten bleiben nur auf diesem Gerät."));
   }
 
-  /* ---------- Training ---------- */
-  var T = null; // {key, deck, total, known, flipped, onlyOpen}
-  function startTraining(k, le, onlyOpen) {
-    var all = cardsOf(k, le);
-    var src = onlyOpen ? all.filter(function (c) { return mem.res[c.id] !== 1; }) : all;
-    T = { key: leKey(k, le), deck: shuffle(src), total: src.length, known: 0, flipped: false, onlyOpen: !!onlyOpen, all: all.length };
+  /* ---------- Training ----------
+     Eine Übungsrunde (T) besteht aus Quellen (eine oder mehrere Lerneinheiten) und einem Modus:
+     all = alle Karten · open = noch nicht gewusste · due = fällige und neue (nur mit Wiederholung in Abständen)
+     dueOnly = nur fällige (Startseite „Heute fällig“). */
+  var T = null;
+  var MODES = { all: "Alle Karten", open: "Nur offene", due: "Fällig und neu", dueOnly: "Fällig" };
+  function pick(cards, mode) {
+    if (mode === "open") return cards.filter(function (c) { return mem.res[c.id] !== 1; });
+    if (mode === "due") return cards.filter(function (c) { return isDue(c) || isNew(c); });
+    if (mode === "dueOnly") return cards.filter(isDue);
+    return cards;
   }
-  function viewTrain(k, le) {
-    document.title = "LE " + le.id + " · " + le.titel;
-    theme(app, k);
-    if (!T || T.key !== leKey(k, le)) startTraining(k, le, false);
-    app.appendChild(backLink("Band " + D.band, "#"));
-    app.appendChild(header("Kapitel " + k.nr + " · Lerneinheit " + le.id, le.titel));
+  function startTraining(id, sources, mode) {
+    var all = cardsFrom(sources), src = pick(all, mode);
+    T = { id: id, sources: sources, mode: mode, deck: shuffle(src), total: src.length, known: 0, flipped: false, all: all.length, edit: null };
+  }
+  function answer(c, ok) {
+    mem.res[c.id] = ok ? 1 : 0;
+    if (mem.cfg.sr) { if (ok) srKnown(c); else srAgain(c); }
+    save();
+    if (ok) { T.deck.shift(); T.known++; } else { T.deck.push(T.deck.shift()); }
+    T.flipped = false; render();
+  }
+  /* opts: id, kicker, title, back, backText, sources, modes (erste = Voreinstellung), k (Farbe) */
+  function viewTraining(opts) {
+    if (opts.k) theme(app, opts.k);
+    if (!T || T.id !== opts.id || opts.modes.indexOf(T.mode) < 0) startTraining(opts.id, opts.sources, opts.modes[0]);
+    var mixed = opts.sources.length > 1;
+    app.appendChild(backLink(opts.backText, opts.back));
+    app.appendChild(header(opts.kicker, opts.title));
 
-    var chips = el("div", "row chips"); chips.setAttribute("role", "group"); chips.setAttribute("aria-label", "Auswahl");
-    var open = cardsOf(k, le).filter(function (c) { return mem.res[c.id] !== 1; }).length;
-    var b1 = btn("Alle Karten (" + T.all + ")", null, function () { startTraining(k, le, false); render(); });
-    var b2 = btn("Nur offene (" + open + ")", null, function () { startTraining(k, le, true); render(); });
-    b1.setAttribute("aria-pressed", String(!T.onlyOpen)); b2.setAttribute("aria-pressed", String(T.onlyOpen));
-    chips.appendChild(b1); chips.appendChild(b2); app.appendChild(chips);
+    var all = cardsFrom(opts.sources);
+    if (opts.modes.length > 1) {
+      var chips = el("div", "row chips"); chips.setAttribute("role", "group"); chips.setAttribute("aria-label", "Auswahl");
+      opts.modes.forEach(function (m) {
+        var b = btn(MODES[m] + " (" + pick(all, m).length + ")", null, function () { startTraining(opts.id, opts.sources, m); render(); });
+        b.setAttribute("aria-pressed", String(T.mode === m)); chips.appendChild(b);
+      });
+      app.appendChild(chips);
+    }
 
     var prog = el("div");
     var meta = el("div", "meta"); meta.appendChild(el("span", null, "Gewusst: " + T.known + " von " + T.total));
@@ -134,36 +208,177 @@
     var bar = el("div", "bar"); var fill = el("i"); fill.style.width = (T.total ? 100 * T.known / T.total : 0) + "%"; bar.appendChild(fill); prog.appendChild(bar);
     app.appendChild(prog);
 
+    /* Bearbeiten direkt auf der Übungsseite */
+    if (T.edit) {
+      var cur = T.edit === "edit" ? T.deck[0] : null;
+      var src = cur || T.deck[0] || { k: opts.sources[0].k, le: opts.sources[0].le };
+      app.appendChild(cardForm(src.k, src.le, cur, T.deck.length ? (T.deck[0].t || "") : "", function (res) {
+        res.k = src.k; res.le = src.le;
+        if (T.edit === "edit") T.deck[0] = res; else { T.deck.push(res); T.total++; T.all++; }
+        T.edit = null; render();
+      }, function () { T.edit = null; render(); }));
+      return;
+    }
+
     var stage = el("section", "card"); stage.setAttribute("aria-live", "polite");
     var act = el("div", "row grow");
     if (!T.deck.length) {
       stage.appendChild(el("div", "tag", T.total ? "Geschafft" : "Keine Karten"));
       if (T.total) { stage.appendChild(el("div", "big", T.total + " / " + T.total)); stage.appendChild(el("div", "q", "Alle Karten dieser Auswahl gewusst.")); }
-      else stage.appendChild(el("div", "q", T.onlyOpen ? "Es sind keine offenen Karten mehr übrig." : "Zu dieser Lerneinheit gibt es noch keine Karten."));
-      act.appendChild(btn("Alle Karten von vorn", "primary", function () { startTraining(k, le, false); render(); }));
-      act.appendChild(btn("Andere Lerneinheit", null, function () { go(""); }));
+      else stage.appendChild(el("div", "q", T.mode === "all" ? "Hier gibt es noch keine Karten." : "In dieser Auswahl ist gerade nichts zu üben."));
+      act.appendChild(btn("Alle Karten von vorn", "primary", function () { startTraining(opts.id, opts.sources, opts.modes.indexOf("all") >= 0 ? "all" : opts.modes[0]); render(); }));
+      act.appendChild(btn("Zur Übersicht", null, function () { go(""); }));
     } else {
       var c = T.deck[0];
+      if (mixed) { var card = stage; card.className += " themed"; card.style.setProperty("--ak", c.k.akzent); card.style.setProperty("--akh", c.k.hell); }
       var top = el("div", "row"); top.style.justifyContent = "space-between"; top.style.alignItems = "center";
-      top.appendChild(el("div", "tag", c.t || ""));
-      if (c.kind === "own") top.appendChild(el("span", "badge", "eigene Karte"));
-      stage.appendChild(top);
+      top.appendChild(el("div", "tag", (mixed ? "Kap. " + c.k.nr + " · LE " + c.le.id + (c.t ? " · " : "") : "") + (c.t || "")));
+      var badges = el("div", "row");
+      if (c.kind === "own") badges.appendChild(el("span", "badge", "eigene Karte"));
+      if (c.kind === "changed") badges.appendChild(el("span", "badge", "geändert"));
+      if (mem.cfg.sr) badges.appendChild(el("span", "badge", isNew(c) ? "neu" : "Fach " + (mem.sr[c.id].box || 0)));
+      top.appendChild(badges); stage.appendChild(top);
       var q = el("div", "q"); fillGaps(q, c.q); stage.appendChild(q);
       if (T.flipped) {
         stage.appendChild(answerNode(c.a));
-        act.appendChild(btn("Nochmal", "no", function () { mem.res[c.id] = 0; save(); T.deck.push(T.deck.shift()); T.flipped = false; render(); }));
-        act.appendChild(btn("Gewusst", "yes", function () { mem.res[c.id] = 1; save(); T.deck.shift(); T.known++; T.flipped = false; render(); }));
+        act.appendChild(btn("Nochmal", "no", function () { answer(c, false); }));
+        act.appendChild(btn("Gewusst", "yes", function () { answer(c, true); }));
       } else {
         stage.appendChild(el("div", "hint", "Erst selbst antworten, dann aufdecken."));
         act.appendChild(btn("Antwort zeigen", "primary", function () { T.flipped = true; render(); }));
       }
     }
     app.appendChild(stage); app.appendChild(act);
-    var more = el("div", "row"); var m = el("a", "btn small", "Karten bearbeiten · eigene Karte anlegen"); m.href = "#" + hashOf(k, le) + "-karten"; more.appendChild(m); app.appendChild(more);
+    var more = el("div", "row");
+    if (T.deck.length) more.appendChild(btn("Diese Karte bearbeiten", "small", function () { T.edit = "edit"; render(); window.scrollTo(0, 0); }));
+    more.appendChild(btn("Neue Karte", "small", function () { T.edit = "new"; render(); window.scrollTo(0, 0); }));
+    var lk = T.deck.length ? T.deck[0] : (opts.sources.length === 1 ? opts.sources[0] : null);
+    if (lk) { var m = el("a", "btn small", "Alle Karten von LE " + lk.le.id); m.href = "#" + hashOf(lk.k, lk.le) + "-karten"; more.appendChild(m); }
+    app.appendChild(more);
+  }
+  function viewTrain(k, le) {
+    document.title = "LE " + le.id + " · " + le.titel;
+    viewTraining({ id: "le:" + leKey(k, le), kicker: "Kapitel " + k.nr + " · Lerneinheit " + le.id, title: le.titel,
+      back: "#", backText: "Band " + D.band, sources: [{ k: k, le: le }], k: k,
+      modes: mem.cfg.sr ? ["due", "all", "open"] : ["all", "open"] });
+  }
+  function viewDue() {
+    document.title = "Heute fällig · Band " + D.band;
+    viewTraining({ id: "faellig", kicker: "Wiederholung in Abständen", title: "Heute fällige Karten",
+      back: "#", backText: "Band " + D.band, sources: ALL, modes: ["dueOnly"] });
+  }
+
+  /* ---------- Gemischt üben: Auswahl ---------- */
+  function mixSources() { return mem.mix.map(byKey).filter(Boolean); }
+  function viewMixSetup() {
+    document.title = "Gemischt üben · Band " + D.band;
+    app.appendChild(backLink("Band " + D.band, "#"));
+    app.appendChild(header("Band " + D.band, "Gemischt üben", "Lerneinheiten auswählen – die Karten werden gemischt abgefragt."));
+    var sel = {}; mem.mix.forEach(function (x) { sel[x] = 1; });
+    function store() { mem.mix = ALL.map(function (s) { return leKey(s.k, s.le); }).filter(function (x) { return sel[x]; }); save(); render(); }
+
+    var startP = el("section", "panel");
+    var srcs = mixSources(), all = cardsFrom(srcs);
+    var modes = mem.cfg.sr ? ["all", "open", "due"] : ["all", "open"];
+    if (modes.indexOf(mem.mixMode) < 0) mem.mixMode = "all";
+    var chips = el("div", "row chips"); chips.setAttribute("role", "group"); chips.setAttribute("aria-label", "Welche Karten");
+    modes.forEach(function (m) {
+      var b = btn(MODES[m] + " (" + pick(all, m).length + ")", null, function () { mem.mixMode = m; save(); render(); });
+      b.setAttribute("aria-pressed", String(mem.mixMode === m)); chips.appendChild(b);
+    });
+    startP.appendChild(el("p", null, srcs.length ? srcs.length + " Lerneinheiten ausgewählt." : "Noch keine Lerneinheit ausgewählt."));
+    startP.appendChild(chips);
+    var n = pick(all, mem.mixMode).length;
+    var go1 = btn(n ? "Gemischt üben (" + n + " Karten)" : "Bitte Lerneinheiten auswählen", n ? "primary" : null, function () {
+      if (!n) return; T = null; go("mischen-los");
+    });
+    if (!n) go1.setAttribute("aria-disabled", "true");
+    var r0 = el("div", "row grow"); r0.appendChild(go1); startP.appendChild(r0);
+    app.appendChild(startP);
+
+    D.kapitel.forEach(function (k) {
+      var sec = el("section", "chapter"); theme(sec, k);
+      var keys = k.le.map(function (le) { return leKey(k, le); });
+      var allOn = keys.every(function (x) { return sel[x]; });
+      var hr = el("div", "row"); hr.style.alignItems = "center"; hr.style.justifyContent = "space-between";
+      var hw = el("div"); hw.appendChild(el("div", "num", "Kapitel " + k.nr + " · " + k.jg)); hw.appendChild(el("h2", null, k.titel));
+      hr.appendChild(hw);
+      hr.appendChild(btn(allOn ? "Kapitel abwählen" : "Ganzes Kapitel", "small", function () { keys.forEach(function (x) { if (allOn) delete sel[x]; else sel[x] = 1; }); store(); }));
+      sec.appendChild(hr);
+      var list = el("div", "les");
+      k.le.forEach(function (le) {
+        var key = leKey(k, le), id = "mx-" + key.replace(/\W/g, "-");
+        var row = el("label", "check"); row.setAttribute("for", id);
+        var cb = document.createElement("input"); cb.type = "checkbox"; cb.id = id; cb.checked = !!sel[key];
+        cb.addEventListener("change", function () { if (cb.checked) sel[key] = 1; else delete sel[key]; store(); });
+        row.appendChild(cb); row.appendChild(el("span", "id", "LE " + le.id)); row.appendChild(el("span", "ti", le.titel));
+        row.appendChild(el("span", "ct", String(cardsOf(k, le).length)));
+        list.appendChild(row);
+      });
+      sec.appendChild(list); app.appendChild(sec);
+    });
+  }
+  function viewMixGo() {
+    var srcs = mixSources();
+    if (!srcs.length) { go("mischen"); return; }
+    document.title = "Gemischt üben · Band " + D.band;
+    var modes = [mem.mixMode].concat(["all", "open", "due"].filter(function (m) { return m !== mem.mixMode && (m !== "due" || mem.cfg.sr); }));
+    viewTraining({ id: "mix:" + mem.mix.join(","), kicker: "Gemischt üben · " + srcs.length + " Lerneinheiten",
+      title: D.kapitel.map(function (k) {
+        var les = srcs.filter(function (s) { return s.k === k; });
+        if (!les.length) return null;
+        return les.length === k.le.length ? "Kapitel " + k.nr : "Kap. " + k.nr + ": LE " + les.map(function (s) { return s.le.id; }).join(", ");
+      }).filter(Boolean).join(" · "),
+      back: "#mischen", backText: "Auswahl ändern", sources: srcs, modes: modes });
   }
 
   /* ---------- Karten bearbeiten ---------- */
-  var editing = null; // Karten-ID in Bearbeitung
+  var editing = null; // Karten-ID in Bearbeitung (Verwaltungsseite)
+
+  /* Formular für eine Karte. cur = Karte, die geändert wird, oder null für eine neue eigene Karte.
+     defTag = vorgeschlagener Abschnitt für neue Karten. onSaved(karte) wird nach dem Speichern aufgerufen. */
+  function cardForm(k, le, cur, defTag, onSaved, onCancel) {
+    var key = leKey(k, le);
+    var form = el("form", "panel"); form.setAttribute("novalidate", "novalidate");
+    form.appendChild(el("h2", null, cur ? "Karte ändern" : "Neue eigene Karte · LE " + le.id));
+    if (cur && cur.kind !== "own") form.appendChild(el("div", "note", "Die Änderung gilt nur auf diesem Gerät. „Zurücksetzen“ in der Kartenliste stellt die Originalkarte wieder her."));
+    function field(id, labelText, node, note) {
+      var w = el("div"); var l = el("label", null, labelText); l.setAttribute("for", id); node.id = id; w.appendChild(l); w.appendChild(node);
+      if (note) w.appendChild(el("div", "note", note)); form.appendChild(w); return node;
+    }
+    var fQ = field("f-q", "Frage", document.createElement("textarea"), "Drei Unterstriche ___ erzeugen eine Lücke.");
+    fQ.value = cur ? cur.q : "";
+    var fA = field("f-a", "Antwort", document.createElement("textarea"), "Mehrere Antworten in mehrere Zeilen schreiben – sie werden als nummerierte Liste gezeigt.");
+    fA.value = cur ? answerText(cur.a) : "";
+    var fT = field("f-tag", "Abschnitt (freiwillig)", document.createElement("input")); fT.type = "text";
+    fT.value = cur ? (cur.t || "") : (defTag || "");
+    var msg = el("div", "msg"); msg.setAttribute("role", "status"); form.appendChild(msg);
+    var fr = el("div", "row grow");
+    var sb = el("button", "primary", cur ? "Änderung speichern" : "Karte anlegen"); sb.type = "submit"; fr.appendChild(sb);
+    if (onCancel) fr.appendChild(btn("Abbrechen", null, onCancel));
+    form.appendChild(fr);
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var q = fQ.value.trim(), a = parseAnswer(fA.value), t = fT.value.trim(), res;
+      if (!q || !(Array.isArray(a) ? a.length : a)) { msg.className = "msg err"; msg.textContent = "Bitte Frage und Antwort ausfüllen."; return; }
+      if (cur && cur.kind === "own") {
+        mem.own[key].forEach(function (c) { if (c.id === cur.id) { c.q = q; c.a = a; c.t = t; } });
+        res = { id: cur.id, q: q, a: a, t: t, kind: "own" };
+      } else if (cur) {
+        mem.over[cur.id] = { q: q, a: a, t: t };
+        res = { id: cur.id, q: q, a: a, t: t, kind: "changed" };
+      } else {
+        res = { id: "e" + D.band + "-" + key + "-" + Date.now().toString(36), q: q, a: a, t: t };
+        (mem.own[key] = mem.own[key] || []).push({ id: res.id, q: q, a: a, t: t });
+        res.kind = "own";
+      }
+      save(); onSaved(res);
+    });
+    function grow(ta) { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 4) + "px"; }
+    [fQ, fA].forEach(function (ta) { ta.addEventListener("input", function () { grow(ta); }); });
+    setTimeout(function () { grow(fQ); grow(fA); try { fQ.focus({ preventScroll: true }); } catch (e) {} }, 0);
+    return form;
+  }
   function viewManage(k, le) {
     document.title = "Karten bearbeiten · LE " + le.id;
     theme(app, k);
@@ -172,36 +387,8 @@
     app.appendChild(header("Karten bearbeiten · LE " + le.id, le.titel, "Änderungen und eigene Karten gelten nur auf diesem Gerät."));
 
     var cur = null; cards.forEach(function (c) { if (c.id === editing) cur = c; });
-    var form = el("form", "panel"); form.setAttribute("novalidate", "novalidate");
-    form.appendChild(el("h2", null, cur ? "Karte ändern" : "Neue eigene Karte"));
-    function field(id, labelText, node, note) {
-      var w = el("div"); var l = el("label", null, labelText); l.setAttribute("for", id); node.id = id; w.appendChild(l); w.appendChild(node);
-      if (note) w.appendChild(el("div", "note", note)); form.appendChild(w); return node;
-    }
-    var fT = field("f-tag", "Abschnitt (freiwillig)", document.createElement("input")); fT.type = "text"; fT.value = cur ? (cur.t || "") : "";
-    var fQ = field("f-q", "Frage", document.createElement("textarea"), "Drei Unterstriche ___ erzeugen eine Lücke.");
-    fQ.value = cur ? cur.q : "";
-    var fA = field("f-a", "Antwort", document.createElement("textarea"), "Mehrere Zeilen werden als nummerierte Liste gezeigt.");
-    fA.value = cur ? answerText(cur.a) : "";
-    var msg = el("div", "msg"); msg.setAttribute("role", "status"); form.appendChild(msg);
-    var fr = el("div", "row");
-    var sb = el("button", "primary", cur ? "Änderung speichern" : "Karte anlegen"); sb.type = "submit"; fr.appendChild(sb);
-    if (cur) fr.appendChild(btn("Abbrechen", null, function () { editing = null; render(); }));
-    form.appendChild(fr);
-    form.addEventListener("submit", function (ev) {
-      ev.preventDefault();
-      var q = fQ.value.trim(), a = parseAnswer(fA.value), t = fT.value.trim();
-      if (!q || !(Array.isArray(a) ? a.length : a)) { msg.className = "msg err"; msg.textContent = "Bitte Frage und Antwort ausfüllen."; return; }
-      if (cur && cur.kind === "own") {
-        mem.own[key].forEach(function (c) { if (c.id === cur.id) { c.q = q; c.a = a; c.t = t; } });
-      } else if (cur) {
-        mem.over[cur.id] = { q: q, a: a, t: t };
-      } else {
-        (mem.own[key] = mem.own[key] || []).push({ id: "e" + D.band + "-" + key + "-" + Date.now().toString(36), q: q, a: a, t: t });
-      }
-      save(); editing = null; T = null; render();
-    });
-    app.appendChild(form);
+    app.appendChild(cardForm(k, le, cur, null, function () { editing = null; T = null; render(); },
+      cur ? function () { editing = null; render(); } : null));
 
     var list = el("section", "panel");
     list.appendChild(el("h2", null, cards.length + " Karten in dieser Lerneinheit"));
@@ -285,6 +472,8 @@
     }
     for (k in o.over) if (Object.prototype.hasOwnProperty.call(o.over, k)) mem.over[k] = o.over[k];
     if (o.res) for (k in o.res) if (Object.prototype.hasOwnProperty.call(o.res, k)) mem.res[k] = o.res[k];
+    if (o.sr) for (k in o.sr) if (Object.prototype.hasOwnProperty.call(o.sr, k)) mem.sr[k] = o.sr[k];
+    if (o.cfg && typeof o.cfg.sr === "boolean") mem.cfg.sr = o.cfg.sr;
     save();
   }
   function viewAdmin() {
@@ -298,7 +487,7 @@
     p1.appendChild(el("p", null, "Auf diesem Gerät: " + n.own + " eigene Karten, " + n.ch + " geänderte, " + n.del + " ausgeblendete. " +
       "Sie liegen nur in diesem Browser. Eine Sicherung schützt vor Verlust und bringt sie auf ein anderes Gerät."));
     p1.appendChild(btn("Sicherung erstellen", "primary", function () {
-      offer(p1, "meine-karten-band" + D.band + ".json", JSON.stringify({ typ: "lksport-sicherung", band: D.band, datum: new Date().toISOString().slice(0, 10), own: mem.own, over: mem.over, res: mem.res }), "application/json");
+      offer(p1, "meine-karten-band" + D.band + ".json", JSON.stringify({ typ: "lksport-sicherung", band: D.band, datum: new Date().toISOString().slice(0, 10), own: mem.own, over: mem.over, res: mem.res, sr: mem.sr, cfg: mem.cfg }), "application/json");
     }));
     app.appendChild(p1);
 
@@ -325,7 +514,7 @@
     var armed = false;
     var rb = btn("Alle Karten wieder als offen markieren", null, function () {
       if (!armed) { armed = true; rb.textContent = "Wirklich zurücksetzen? Nochmal tippen."; rb.className = "no"; return; }
-      mem.res = {}; save(); T = null; armed = false; rb.textContent = "Alle Karten wieder als offen markieren"; rb.className = ""; m3.textContent = "Zurückgesetzt.";
+      mem.res = {}; mem.sr = {}; save(); T = null; armed = false; rb.textContent = "Alle Karten wieder als offen markieren"; rb.className = ""; m3.textContent = "Zurückgesetzt.";
     });
     p3.appendChild(rb); p3.appendChild(m3); app.appendChild(p3);
 
@@ -351,6 +540,9 @@
     app.textContent = ""; app.className = ""; app.removeAttribute("style");
     var name = (location.hash || "").replace(/^#/, "");
     if (name === "verwalten") { viewAdmin(); return; }
+    if (name === "mischen") { viewMixSetup(); return; }
+    if (name === "mischen-los") { viewMixGo(); return; }
+    if (name === "faellig") { if (mem.cfg.sr) viewDue(); else viewHome(); return; }
     var f = find(name);
     if (!f) { T = null; editing = null; viewHome(); return; }
     if (f.manage) viewManage(f.k, f.le); else { editing = null; viewTrain(f.k, f.le); }

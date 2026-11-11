@@ -20,6 +20,13 @@ Die Seite läuft ohne Server: direkt aus dem Ordner (Doppelklick auf `index.html
 
 Die Seite ist damit öffentlich abrufbar.
 
+## Funktionen für die Schüler
+
+- **Lerneinheit üben:** Karten in zufälliger Reihenfolge, „Nochmal“ legt die Karte ans Ende des Stapels; „Nur offene“ übt die noch nicht gewussten Karten.
+- **Direkt bearbeiten:** Unter jeder Karte „Diese Karte bearbeiten“ und „Neue Karte“. Neue Karten gehören zur Lerneinheit, in der man gerade übt.
+- **Gemischt üben:** Mehrere Lerneinheiten oder ganze Kapitel auswählen und gemischt üben, z. B. vor einer Abfrage.
+- **Wiederholung in Abständen** (Schalter auf der Bandseite, anfangs aus): Gewusste Karten kommen nach 1, 3, 7, 21 und 60 Tagen wieder, bei „Nochmal“ beginnt die Karte von vorn. Die Bandseite zeigt dann, wie viele Karten heute fällig sind.
+
 ## Was wo gespeichert wird
 
 - **Lernstand, eigene Karten und Änderungen der Schüler** liegen nur im Browser des jeweiligen Geräts. GitHub Pages speichert nichts. Unter „Eigene Karten sichern · Lehrermodus" kann jeder eine Sicherungsdatei erstellen und auf einem anderen Gerät einlesen.

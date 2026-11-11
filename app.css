@@ -97,3 +97,18 @@ footer{font-size:15px;color:var(--muted)}
 @media (max-width:420px){body{font-size:18px}h1{font-size:25px}.q{font-size:20px}.a{font-size:19px}.card{padding:18px 16px}
   .le{gap:10px;padding:10px 12px}.le .id{min-width:2.9em}}
 @media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+
+/* Schalter und Auswahlliste */
+.switchrow{display:flex;align-items:center;gap:12px}
+.switchrow label{margin:0}
+.switch{width:56px;min-width:56px;height:32px;min-height:32px;padding:0;border-radius:999px;position:relative;background:var(--line);border:0}
+.switch .knob{position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:var(--surface);transition:left .15s}
+.switch[aria-checked="true"]{background:var(--accent)}
+.switch[aria-checked="true"] .knob{left:27px}
+.check{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);cursor:pointer;font-weight:400;color:var(--ink);margin:0;font-size:inherit}
+.check input{width:22px;height:22px;flex:0 0 auto;accent-color:var(--accent)}
+.check .id{font-family:var(--display);font-weight:700;color:var(--accent);min-width:3em}
+.check .ti{flex:1 1 auto;min-width:0}
+.check .ct{font-size:15px;color:var(--muted);font-variant-numeric:tabular-nums}
+[aria-disabled="true"]{opacity:.6;cursor:default}
+@media (prefers-reduced-motion:reduce){.switch .knob{transition:none}}
